@@ -1,0 +1,13 @@
+# Private configuration and credentials
+.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local operating-system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
