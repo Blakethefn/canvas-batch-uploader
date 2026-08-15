@@ -32,7 +32,9 @@ T = TypeVar("T")
 
 
 SERVER_INSTRUCTIONS = (
-    "This server is read-only unless it was explicitly launched with --enable-submit. "
+    "Canvas uploads and submissions are disabled unless the server was explicitly "
+    "launched with --enable-submit. "
+    "Assignment-file downloads write only to an explicitly named existing local folder. "
     "Prepare a batch before submitting it, show the returned review to the user, and pass "
     "the exact confirmation string returned by the prepare tool. Never retry an uncertain "
     "final submission; verify it in Canvas. Approval snapshots expire after 10 minutes."
@@ -57,6 +59,12 @@ PREPARE = ToolAnnotations(
     idempotent_hint=False,
     open_world_hint=True,
 )
+DOWNLOAD_LOCAL = ToolAnnotations(
+    read_only_hint=False,
+    destructive_hint=False,
+    idempotent_hint=False,
+    open_world_hint=True,
+)
 DESTRUCTIVE_WRITE = ToolAnnotations(
     read_only_hint=False,
     destructive_hint=True,
@@ -73,6 +81,14 @@ class ToolRuntime(Protocol):
     def list_active_courses(self) -> list[dict[str, str]]: ...
 
     def list_assignments(self, course_id: str) -> list[dict[str, object]]: ...
+
+    def list_assignment_files(
+        self, course_id: str, assignment_id: str
+    ) -> list[dict[str, object]]: ...
+
+    def download_assignment_files(
+        self, course_id: str, assignment_id: str, destination_folder: str
+    ) -> dict[str, object]: ...
 
     def list_local_files(self, folder_path: str) -> list[dict[str, object]]: ...
 
@@ -128,6 +144,18 @@ class CanvasMCPRuntime:
 
     def list_assignments(self, course_id: str) -> list[dict[str, object]]:
         return self._get_manager().list_assignments(course_id)
+
+    def list_assignment_files(
+        self, course_id: str, assignment_id: str
+    ) -> list[dict[str, object]]:
+        return self._get_manager().list_assignment_files(course_id, assignment_id)
+
+    def download_assignment_files(
+        self, course_id: str, assignment_id: str, destination_folder: str
+    ) -> dict[str, object]:
+        return self._get_manager().download_assignment_files(
+            course_id, assignment_id, destination_folder
+        )
 
     @staticmethod
     def list_local_files(folder_path: str) -> list[dict[str, object]]:
@@ -206,6 +234,26 @@ def create_mcp_server(runtime: ToolRuntime) -> MCPServer:
     def canvas_list_assignments(course_id: str) -> list[dict[str, object]]:
         """List assignments, submission types, extensions, and upload support for a course."""
         return runtime.safe_call(lambda: runtime.list_assignments(course_id))
+
+    @server.tool(annotations=READ_EXTERNAL)
+    def canvas_list_assignment_files(
+        course_id: str, assignment_id: str
+    ) -> list[dict[str, object]]:
+        """List Canvas-hosted files linked from one assignment without downloading."""
+        return runtime.safe_call(
+            lambda: runtime.list_assignment_files(course_id, assignment_id)
+        )
+
+    @server.tool(annotations=DOWNLOAD_LOCAL)
+    def canvas_download_assignment_files(
+        course_id: str, assignment_id: str, destination_folder: str
+    ) -> dict[str, object]:
+        """Download assignment files into an existing absolute folder without overwriting."""
+        return runtime.safe_call(
+            lambda: runtime.download_assignment_files(
+                course_id, assignment_id, destination_folder
+            )
+        )
 
     @server.tool(annotations=READ_LOCAL)
     def canvas_list_local_files(folder_path: str) -> list[dict[str, object]]:

@@ -6,6 +6,7 @@ import mimetypes
 import re
 import time
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 from urllib.parse import quote, urljoin, urlsplit
@@ -18,6 +19,15 @@ from .submission_guard import ApprovalSnapshot, require_matching_approval
 
 DEFAULT_TIMEOUT = (5, 30)
 TRANSIENT_STATUS_CODES = {429, 502, 503, 504}
+MAX_DOWNLOAD_REDIRECTS = 5
+WINDOWS_RESERVED_FILE_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 
 
 class CanvasError(RuntimeError):
@@ -83,6 +93,34 @@ class CanvasAssignment:
 class UploadedFile:
     path: Path
     canvas_file_id: str
+
+
+@dataclass(frozen=True)
+class CanvasFile:
+    id: str
+    display_name: str
+    size: int | None
+    download_url: str
+
+
+class _AssignmentFileLinkParser(HTMLParser):
+    """Collect Canvas file references from an assignment HTML fragment."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.candidates: list[str] = []
+
+    def handle_starttag(
+        self, _tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        values = {key.casefold(): value for key, value in attrs if value is not None}
+        endpoint = values.get("data-api-endpoint")
+        return_type = values.get("data-api-returntype", "").casefold()
+        href = values.get("href")
+        if endpoint and return_type == "file":
+            self.candidates.append(endpoint)
+        if href:
+            self.candidates.append(href)
 
 
 def submission_exists(payload: Mapping[str, Any]) -> bool:
@@ -194,6 +232,63 @@ class CanvasClient:
             )
         return sorted(assignments, key=lambda assignment: assignment.name.casefold())
 
+    def get_assignment_files(
+        self, course_id: str, assignment_id: str
+    ) -> list[CanvasFile]:
+        """List Canvas-hosted files referenced by one assignment."""
+        course = quote(str(course_id), safe="")
+        assignment = quote(str(assignment_id), safe="")
+        response = self._canvas_request(
+            "GET",
+            f"/api/v1/courses/{course}/assignments/{assignment}",
+            retry_transient=True,
+        )
+        payload = self._json_object(response, "assignment")
+        file_ids: list[str] = []
+
+        def add_file_id(value: object) -> None:
+            if value is None:
+                return
+            file_id = str(value)
+            if file_id.isdigit() and file_id not in file_ids:
+                file_ids.append(file_id)
+
+        attachments = payload.get("attachments") or []
+        if isinstance(attachments, list):
+            for attachment in attachments:
+                if isinstance(attachment, Mapping):
+                    add_file_id(attachment.get("id"))
+        add_file_id(payload.get("annotatable_attachment_id"))
+
+        description = payload.get("description")
+        if isinstance(description, str) and description:
+            parser = _AssignmentFileLinkParser()
+            parser.feed(description)
+            parser.close()
+            for candidate in parser.candidates:
+                add_file_id(self._file_id_from_assignment_link(candidate))
+
+        files = [self._get_file(file_id) for file_id in file_ids]
+        return sorted(files, key=lambda item: item.display_name.casefold())
+
+    def download_assignment_files(
+        self, course_id: str, assignment_id: str, destination_folder: Path
+    ) -> list[Path]:
+        """Download every Canvas-hosted assignment file without overwriting."""
+        try:
+            folder = destination_folder.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise CanvasAPIError(
+                "The download folder does not exist or is inaccessible."
+            ) from error
+        if not folder.is_dir():
+            raise CanvasAPIError("The download destination must be a folder.")
+
+        downloaded: list[Path] = []
+        for canvas_file in self.get_assignment_files(course_id, assignment_id):
+            downloaded.append(self._download_file(canvas_file, folder))
+        return downloaded
+
     def ensure_assignment_is_unsubmitted(
         self, course_id: str, assignment_id: str
     ) -> None:
@@ -257,6 +352,150 @@ class CanvasClient:
         if file_id is None:
             raise CanvasAPIError("Canvas did not return an ID for the uploaded file.")
         return UploadedFile(path, str(file_id))
+
+    def _get_file(self, file_id: str) -> CanvasFile:
+        response = self._canvas_request(
+            "GET", f"/api/v1/files/{quote(file_id, safe='')}", retry_transient=True
+        )
+        payload = self._json_object(response, "file metadata")
+        returned_id = payload.get("id")
+        download_url = payload.get("url")
+        display_name = payload.get("display_name") or payload.get("filename")
+        if returned_id is None or not isinstance(download_url, str):
+            raise CanvasAPIError("Canvas returned invalid file metadata.")
+        self._require_safe_https_url(download_url, "file download")
+        if not isinstance(display_name, str) or not display_name.strip():
+            display_name = f"Canvas file {returned_id}"
+        raw_size = payload.get("size")
+        try:
+            size = int(raw_size) if raw_size is not None else None
+        except (TypeError, ValueError):
+            size = None
+        if size is not None and size < 0:
+            size = None
+        return CanvasFile(
+            str(returned_id),
+            self._safe_download_name(display_name),
+            size,
+            download_url,
+        )
+
+    def _download_file(self, canvas_file: CanvasFile, folder: Path) -> Path:
+        response = self._open_download(canvas_file.download_url)
+        destination: Path | None = None
+        file_handle = None
+        bytes_written = 0
+        try:
+            number = 1
+            while file_handle is None:
+                destination = self._download_destination(
+                    folder, canvas_file.display_name, number
+                )
+                try:
+                    file_handle = destination.open("xb")
+                except FileExistsError:
+                    number += 1
+            with file_handle:
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        file_handle.write(chunk)
+                        bytes_written += len(chunk)
+            if canvas_file.size is not None and bytes_written != canvas_file.size:
+                raise CanvasConnectionError(
+                    f"The download was incomplete for {canvas_file.display_name}."
+                )
+        except (OSError, requests.RequestException, CanvasConnectionError) as error:
+            if destination is not None:
+                try:
+                    destination.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if isinstance(error, CanvasConnectionError):
+                raise
+            raise CanvasConnectionError(
+                f"Could not download {canvas_file.display_name}."
+            ) from error
+        finally:
+            response.close()
+        assert destination is not None
+        return destination
+
+    def _open_download(self, initial_url: str) -> requests.Response:
+        url = initial_url
+        for redirect_count in range(MAX_DOWNLOAD_REDIRECTS + 1):
+            self._require_safe_https_url(url, "file download")
+            headers = (
+                {"Authorization": f"Bearer {self._api_key}"}
+                if url_has_same_origin(url, self.base_url)
+                else {"Authorization": None}
+            )
+            try:
+                response = self._session.request(
+                    "GET",
+                    url,
+                    headers=headers,
+                    timeout=self._timeout,
+                    allow_redirects=False,
+                    stream=True,
+                )
+            except (requests.ConnectionError, requests.Timeout) as error:
+                raise CanvasConnectionError(
+                    "The Canvas file download connection failed."
+                ) from error
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("Location")
+                response.close()
+                if not location or redirect_count >= MAX_DOWNLOAD_REDIRECTS:
+                    raise CanvasSecurityError(
+                        "The Canvas file download returned an unsafe redirect."
+                    )
+                url = urljoin(url, location)
+                continue
+            if response.status_code == 403:
+                response.close()
+                raise CanvasAccessError("Canvas denied access to an assignment file.")
+            if response.status_code == 404:
+                response.close()
+                raise CanvasNotFoundError("A Canvas assignment file was not found.")
+            if not 200 <= response.status_code < 300:
+                status = response.status_code
+                response.close()
+                raise CanvasAPIError(
+                    f"Canvas rejected the file download (HTTP {status})."
+                )
+            return response
+        raise CanvasSecurityError("The Canvas file download redirected too many times.")
+
+    def _file_id_from_assignment_link(self, candidate: str) -> str | None:
+        absolute = urljoin(self.base_url.rstrip("/") + "/", candidate)
+        if not url_has_same_origin(absolute, self.base_url):
+            return None
+        path = urlsplit(absolute).path
+        match = re.search(
+            r"/(?:api/v1/)?(?:courses/[^/]+/)?files/(\d+)(?:/|$)", path
+        )
+        return match.group(1) if match else None
+
+    @staticmethod
+    def _safe_download_name(value: str) -> str:
+        name = value.replace("\\", "/").rsplit("/", 1)[-1]
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name).strip(" .")
+        if not name:
+            name = "Canvas file"
+        if Path(name).stem.upper() in WINDOWS_RESERVED_FILE_NAMES:
+            name = f"{Path(name).stem} file{Path(name).suffix}"
+        path = Path(name)
+        suffix = path.suffix[:20]
+        stem_limit = max(180 - len(suffix), 1)
+        stem = path.stem[:stem_limit].rstrip(" .") or "Canvas file"
+        return f"{stem}{suffix}"
+
+    @staticmethod
+    def _download_destination(folder: Path, name: str, number: int) -> Path:
+        path = Path(name)
+        if number == 1:
+            return folder / name
+        return folder / f"{path.stem} ({number}){path.suffix}"
 
     def create_submission(
         self,

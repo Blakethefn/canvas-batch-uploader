@@ -29,6 +29,16 @@ class FakeRuntime:
     def list_assignments(self, _course_id: str) -> list[dict[str, object]]:
         return []
 
+    def list_assignment_files(
+        self, _course_id: str, _assignment_id: str
+    ) -> list[dict[str, object]]:
+        return []
+
+    def download_assignment_files(
+        self, _course_id: str, _assignment_id: str, _destination_folder: str
+    ) -> dict[str, object]:
+        return {"downloaded_count": 0}
+
     def list_local_files(self, _folder_path: str) -> list[dict[str, object]]:
         return []
 
@@ -64,6 +74,8 @@ class MCPServerTests(unittest.TestCase):
                     "canvas_configuration_status",
                     "canvas_list_active_courses",
                     "canvas_list_assignments",
+                    "canvas_list_assignment_files",
+                    "canvas_download_assignment_files",
                     "canvas_list_local_files",
                     "canvas_prepare_batch",
                     "canvas_submit_prepared_batch",
@@ -71,6 +83,10 @@ class MCPServerTests(unittest.TestCase):
                 },
             )
             self.assertTrue(tools["canvas_list_active_courses"].annotations.read_only_hint)
+            download = tools["canvas_download_assignment_files"].annotations
+            self.assertFalse(download.read_only_hint)
+            self.assertFalse(download.destructive_hint)
+            self.assertFalse(download.idempotent_hint)
             submit = tools["canvas_submit_prepared_batch"].annotations
             retry = tools["canvas_retry_failed_uploads"].annotations
             self.assertFalse(submit.read_only_hint)

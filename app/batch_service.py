@@ -17,6 +17,7 @@ from .canvas_client import (
     CanvasClient,
     CanvasCourse,
     CanvasError,
+    CanvasFile,
     UncertainSubmissionError,
     UploadedFile,
 )
@@ -57,6 +58,14 @@ class CanvasOperations(Protocol):
     def ensure_assignment_is_unsubmitted(
         self, course_id: str, assignment_id: str
     ) -> None: ...
+
+    def get_assignment_files(
+        self, course_id: str, assignment_id: str
+    ) -> list[CanvasFile]: ...
+
+    def download_assignment_files(
+        self, course_id: str, assignment_id: str, destination_folder: Path
+    ) -> list[Path]: ...
 
     def upload_file(
         self, course_id: str, assignment_id: str, path: Path
@@ -303,6 +312,56 @@ class PreparedBatchManager:
                 for assignment in self._client.get_assignments(course_id)
             ]
 
+    def list_assignment_files(
+        self, course_id: str, assignment_id: str
+    ) -> list[dict[str, object]]:
+        with self._lock:
+            course, assignment = self._resolve_target(
+                course_id, assignment_id, require_online_upload=False
+            )
+            return [
+                {
+                    "canvas_file_id": canvas_file.id,
+                    "file_name": canvas_file.display_name,
+                    "size_bytes": canvas_file.size,
+                    "course_id": course.id,
+                    "assignment_id": assignment.id,
+                }
+                for canvas_file in self._client.get_assignment_files(
+                    course.id, assignment.id
+                )
+            ]
+
+    def download_assignment_files(
+        self, course_id: str, assignment_id: str, destination_folder: str
+    ) -> dict[str, object]:
+        with self._lock:
+            course, assignment = self._resolve_target(
+                course_id, assignment_id, require_online_upload=False
+            )
+            folder = Path(destination_folder)
+            if not folder.is_absolute():
+                raise BatchServiceError("destination_folder must be an absolute path.")
+            try:
+                folder = folder.resolve(strict=True)
+            except (OSError, RuntimeError) as error:
+                raise BatchServiceError(
+                    "The download folder does not exist or is inaccessible."
+                ) from error
+            if not folder.is_dir():
+                raise BatchServiceError("The download destination must be a folder.")
+            downloaded = self._client.download_assignment_files(
+                course.id, assignment.id, folder
+            )
+            return {
+                "course_id": course.id,
+                "assignment_id": assignment.id,
+                "assignment_name": assignment.name,
+                "destination_folder": str(folder),
+                "downloaded_files": [str(path) for path in downloaded],
+                "downloaded_count": len(downloaded),
+            }
+
     def prepare(
         self, course_id: str, assignment_id: str, file_paths: Sequence[str]
     ) -> dict[str, object]:
@@ -433,7 +492,11 @@ class PreparedBatchManager:
         return state
 
     def _resolve_target(
-        self, course_id: str, assignment_id: str
+        self,
+        course_id: str,
+        assignment_id: str,
+        *,
+        require_online_upload: bool = True,
     ) -> tuple[CanvasCourse, CanvasAssignment]:
         requested_course = str(course_id)
         requested_assignment = str(assignment_id)
@@ -453,7 +516,7 @@ class PreparedBatchManager:
         )
         if assignment is None:
             raise BatchServiceError("The requested assignment was not found.")
-        if not assignment.accepts_file_uploads:
+        if require_online_upload and not assignment.accepts_file_uploads:
             raise BatchServiceError("The assignment does not accept online file uploads.")
         return course, assignment
 

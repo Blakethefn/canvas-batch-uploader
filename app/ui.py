@@ -140,6 +140,14 @@ class CanvasUploaderApp(ttk.Frame):
         self.load_homework_button.grid(
             row=1, column=1, sticky="w", padx=(8, 0), pady=(8, 0)
         )
+        self.download_assignment_button = ttk.Button(
+            library,
+            text="Download Canvas files",
+            command=self._download_assignment_files,
+        )
+        self.download_assignment_button.grid(
+            row=1, column=2, sticky="w", padx=(8, 0), pady=(8, 0)
+        )
         ttk.Label(library, textvariable=self.library_status_value).grid(
             row=2, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
@@ -436,6 +444,48 @@ class CanvasUploaderApp(ttk.Frame):
             return
         self._load_folder(folder)
         self.library_status_value.set(f"Loaded stored homework from {folder}.")
+
+    def _download_assignment_files(self) -> None:
+        if self._busy:
+            return
+        course = self._selected_course()
+        assignment = self._selected_assignment()
+        if course is None or assignment is None:
+            messagebox.showwarning(
+                "Canvas files", "Select a Canvas course and assignment first."
+            )
+            return
+        try:
+            folder = self.homework_library.assignment_folder(
+                course.id, assignment.name, create=True
+            )
+        except HomeworkLibraryError as error:
+            messagebox.showwarning("Canvas files", str(error))
+            return
+
+        self._set_busy(True, f"Finding Canvas files for {assignment.name}…")
+
+        def finished(downloaded: list[Path]) -> None:
+            if not downloaded:
+                self.library_status_value.set(
+                    "This assignment does not contain any Canvas-hosted files."
+                )
+                self.status_value.set("No assignment files were available to download.")
+                return
+            self._load_folder(folder)
+            self.library_status_value.set(
+                f"Downloaded {len(downloaded)} Canvas file(s) into {folder}."
+            )
+            self.status_value.set(
+                "Assignment files downloaded. They are not selected for upload."
+            )
+
+        self._run_background(
+            lambda: self.client.download_assignment_files(
+                course.id, assignment.id, folder
+            ),
+            finished,
+        )
 
     def _choose_folder(self) -> None:
         if self._busy:
@@ -824,6 +874,7 @@ class CanvasUploaderApp(ttk.Frame):
             self.library_folder_button,
             self.store_homework_button,
             self.load_homework_button,
+            self.download_assignment_button,
             self.include_button,
             self.exclude_button,
             self.include_all_button,

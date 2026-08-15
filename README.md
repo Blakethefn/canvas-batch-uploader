@@ -1,6 +1,6 @@
 # Canvas Batch Uploader
 
-A small Tkinter desktop app for reviewing and submitting a folder of local files to one Canvas assignment. It never selects files automatically and never creates a submission without an explicit confirmation.
+A small Tkinter desktop app for downloading Canvas assignment files and reviewing and submitting a folder of local files to one Canvas assignment. It never selects files automatically and never creates a submission without an explicit confirmation.
 
 ## Setup
 
@@ -40,10 +40,11 @@ The desktop app includes a **Homework Library** section for keeping local work o
 
 1. Select a Canvas course and assignment.
 2. Choose a private homework folder for that course, such as `D:\accountings2`.
-3. Click **Add homework files** and choose completed files.
-4. The app copies them into an assignment-named subfolder and loads the stored copies into the review table.
+3. Click **Download Canvas files** to save Canvas-hosted attachments and files linked in the assignment instructions. Existing local files are never overwritten.
+4. Click **Add homework files** and choose completed files.
+5. The app copies them into an assignment-named subfolder and loads the stored copies into the review table.
 
-Original files are never moved or deleted. Existing files are never overwritten: identical files are reused, while a different file with the same name receives a numbered name such as `worksheet (2).xlsx`. Credential files, private keys, and symbolic links are rejected. Course-to-folder mappings are stored only in the Git-ignored `data/homework_library.json`; homework file contents remain in the folder you selected.
+Downloaded assignment files are loaded into the file table but are not automatically selected for upload. Original files are never moved or deleted. Existing files are never overwritten: downloaded conflicts receive a numbered name, while locally added identical files are reused and different files receive names such as `worksheet (2).xlsx`. Credential files, private keys, and symbolic links are rejected from upload storage. Course-to-folder mappings are stored only in the Git-ignored `data/homework_library.json`; homework file contents remain in the folder you selected.
 
 ## Headless MCP server
 
@@ -84,6 +85,8 @@ Codex also supports a `cwd` field for stdio servers in `~/.codex/config.toml`; t
 
 - `canvas_configuration_status`: reports presence and URL validity without returning any token.
 - `canvas_list_active_courses` and `canvas_list_assignments`: read Canvas course and assignment metadata.
+- `canvas_list_assignment_files`: lists Canvas-hosted attachments and file links for one assignment without downloading.
+- `canvas_download_assignment_files`: downloads those files into an explicitly named existing absolute folder without overwriting local files. This local-only write does not require `--enable-submit`.
 - `canvas_list_local_files`: lists only safe, direct regular files in one absolute folder and never reads their contents.
 - `canvas_prepare_batch`: validates the target and exact file contents, verifies no existing submission, and returns a complete expiring review without uploading.
 - `canvas_submit_prepared_batch`: write-enabled only; revalidates the immutable review, uploads every file, then creates exactly one submission.
@@ -94,6 +97,7 @@ Codex also supports a `cwd` field for stdio servers in `~/.codex/config.toml`; t
 - The token is read from `.env`, used only in the Canvas `Authorization` header, and never displayed or logged.
 - Files named `.env` or `.env.*` are excluded from folder selections so credentials cannot be added to a batch accidentally.
 - Canvas API redirects are blocked. Pagination links and upload-completion URLs are accepted only when they return to the configured Canvas origin. A Canvas-provided HTTPS upload service receives the file but never receives the Canvas authorization header.
+- Assignment downloads follow only HTTPS links. The Canvas token is sent only to the configured Canvas origin and is removed before any download redirect to another host.
 - The app checks for an existing submission before uploading and again immediately before creating the submission. It refuses to replace or add to an existing submission.
 - All files in an approved batch upload before one submission is created. If a file upload fails, no submission is created; use **Retry failed uploads** after fixing the local problem.
 - If the final submission response is uncertain, the app disables retries and asks you to verify in Canvas, avoiding an accidental resubmission.
