@@ -3,6 +3,7 @@
 
 # Local API response data (may contain student/course information)
 data/
+exports/
 
 # Python artifacts
 __pycache__/
