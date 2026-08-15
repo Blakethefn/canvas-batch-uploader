@@ -72,6 +72,7 @@ class CanvasAssignment:
     name: str
     submission_types: tuple[str, ...]
     allowed_extensions: tuple[str, ...]
+    is_submitted: bool = False
 
     @property
     def accepts_file_uploads(self) -> bool:
@@ -82,6 +83,23 @@ class CanvasAssignment:
 class UploadedFile:
     path: Path
     canvas_file_id: str
+
+
+def submission_exists(payload: Mapping[str, Any]) -> bool:
+    """Return whether a Canvas submission record represents a real attempt."""
+    workflow_state = str(payload.get("workflow_state") or "").lower()
+    attachments = payload.get("attachments") or []
+    try:
+        attempt = int(payload.get("attempt") or 0)
+    except (TypeError, ValueError):
+        attempt = 0
+    return bool(
+        payload.get("submitted_at")
+        or payload.get("submission_type")
+        or attachments
+        or attempt > 0
+        or workflow_state in {"submitted", "graded", "pending_review"}
+    )
 
 
 def next_page_url(link_header: str, trusted_base_url: str) -> str | None:
@@ -154,7 +172,7 @@ class CanvasClient:
         course = quote(str(course_id), safe="")
         pages = self._get_paginated(
             f"/api/v1/courses/{course}/assignments",
-            params={"per_page": 100},
+            params={"per_page": 100, "include[]": "submission"},
         )
         assignments: list[CanvasAssignment] = []
         for item in pages:
@@ -162,12 +180,16 @@ class CanvasClient:
                 raise CanvasAPIError("Canvas returned an invalid assignments response.")
             submission_types = item.get("submission_types") or []
             allowed_extensions = item.get("allowed_extensions") or []
+            submission = item.get("submission")
             assignments.append(
                 CanvasAssignment(
                     str(item["id"]),
                     str(item.get("name") or f"Assignment {item['id']}"),
                     tuple(str(value) for value in submission_types),
                     tuple(str(value).lstrip(".").lower() for value in allowed_extensions),
+                    submission_exists(submission)
+                    if isinstance(submission, Mapping)
+                    else False,
                 )
             )
         return sorted(assignments, key=lambda assignment: assignment.name.casefold())
@@ -183,19 +205,7 @@ class CanvasClient:
             retry_transient=True,
         )
         payload = self._json_object(response, "submission")
-        workflow_state = str(payload.get("workflow_state") or "").lower()
-        attachments = payload.get("attachments") or []
-        try:
-            attempt = int(payload.get("attempt") or 0)
-        except (TypeError, ValueError):
-            attempt = 0
-        if (
-            payload.get("submitted_at")
-            or payload.get("submission_type")
-            or attachments
-            or attempt > 0
-            or workflow_state in {"submitted", "graded", "pending_review"}
-        ):
+        if submission_exists(payload):
             raise ExistingSubmissionError(
                 "This assignment already has a submission. The app will not replace it."
             )

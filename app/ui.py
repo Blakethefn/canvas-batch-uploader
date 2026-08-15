@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from pathlib import Path
 from tkinter import BooleanVar, StringVar, Tk, filedialog, messagebox
 from tkinter import ttk
@@ -94,6 +95,17 @@ class CanvasUploaderApp(ttk.Frame):
         )
         self.assignment_combo.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(8, 0))
         self.assignment_combo.bind("<<ComboboxSelected>>", self._assignment_selected)
+        style = ttk.Style(self.root)
+        style.configure("Completed.TLabel", foreground="#188038")
+        self.assignment_status_value = StringVar(value="")
+        self.assignment_status = ttk.Label(
+            target,
+            textvariable=self.assignment_status_value,
+            style="Completed.TLabel",
+        )
+        self.assignment_status.grid(
+            row=2, column=1, columnspan=2, sticky="w", pady=(4, 0)
+        )
 
         library = ttk.LabelFrame(
             self,
@@ -266,6 +278,7 @@ class CanvasUploaderApp(ttk.Frame):
         self._invalidate_approval()
         self.course_value.set("")
         self.assignment_value.set("")
+        self.assignment_status_value.set("")
         self.course_combo["values"] = ()
         self.assignment_combo["values"] = ()
         self._set_busy(True, "Loading active courses…")
@@ -289,6 +302,7 @@ class CanvasUploaderApp(ttk.Frame):
         self._invalidate_approval()
         self.assignments = []
         self.assignment_value.set("")
+        self.assignment_status_value.set("")
         self.assignment_combo["values"] = ()
         self._refresh_library_status()
         self._refresh_review()
@@ -312,9 +326,16 @@ class CanvasUploaderApp(ttk.Frame):
             return
         self._invalidate_approval()
         assignment = self._selected_assignment()
-        if assignment and not assignment.accepts_file_uploads:
+        if assignment and assignment.is_submitted:
+            self.assignment_status_value.set("✓ Already submitted in Canvas")
+            self.status_value.set(
+                "This assignment is already done. Choose another assignment to upload."
+            )
+        elif assignment and not assignment.accepts_file_uploads:
+            self.assignment_status_value.set("")
             self.status_value.set("This assignment does not accept file uploads.")
         else:
+            self.assignment_status_value.set("")
             self.status_value.set("Review the selected target and files.")
         self._refresh_library_status()
         self._refresh_review()
@@ -607,6 +628,7 @@ class CanvasUploaderApp(ttk.Frame):
         log_rows: list[dict[str, str]] = []
 
         if result.submitted:
+            self._mark_assignment_submitted(assignment.id)
             for path in approved_paths:
                 self._add_result(path, "Success", "Submitted to Canvas.")
                 log_rows.append(
@@ -685,6 +707,10 @@ class CanvasUploaderApp(ttk.Frame):
             raise ValueError("Select a course.")
         if assignment is None:
             raise ValueError("Select an assignment.")
+        if assignment.is_submitted:
+            raise ValueError(
+                "This assignment is already done in Canvas. Choose another assignment."
+            )
         if not assignment.accepts_file_uploads:
             raise ValueError("The selected assignment does not accept file uploads.")
         if not paths:
@@ -720,8 +746,27 @@ class CanvasUploaderApp(ttk.Frame):
 
     @staticmethod
     def _assignment_label(assignment: CanvasAssignment) -> str:
+        prefix = "✓ DONE — " if assignment.is_submitted else ""
         suffix = "" if assignment.accepts_file_uploads else " — no file uploads"
-        return f"{assignment.name} (ID {assignment.id}){suffix}"
+        return f"{prefix}{assignment.name} (ID {assignment.id}){suffix}"
+
+    def _mark_assignment_submitted(self, assignment_id: str) -> None:
+        index = next(
+            (
+                index
+                for index, item in enumerate(self.assignments)
+                if item.id == assignment_id
+            ),
+            None,
+        )
+        if index is None:
+            return
+        self.assignments[index] = replace(self.assignments[index], is_submitted=True)
+        self.assignment_combo["values"] = [
+            self._assignment_label(item) for item in self.assignments
+        ]
+        self.assignment_combo.current(index)
+        self.assignment_status_value.set("✓ Already submitted in Canvas")
 
     def _refresh_file_tree(self) -> None:
         selections = set(self.file_tree.selection())

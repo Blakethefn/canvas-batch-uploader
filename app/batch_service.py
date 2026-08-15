@@ -617,6 +617,7 @@ class PreparedBatchManager:
             "submission_types": list(assignment.submission_types),
             "allowed_file_extensions": list(assignment.allowed_extensions),
             "accepts_online_upload": assignment.accepts_file_uploads,
+            "already_submitted": assignment.is_submitted,
         }
 
 
