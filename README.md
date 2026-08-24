@@ -1,8 +1,8 @@
-# Canvas Batch Uploader MCP Server
+# Canvas Batch Uploader
 
-Canvas Batch Uploader is an MCP server that uses Canvas's official REST API to help MCP-compatible AI agents automate common course, assignment, file-upload, and submission workflows. It is a productivity tool for reducing repetitive manual interaction with Canvas: an agent can inspect courses and assignments, retrieve assignment files, prepare an explicit batch review, and—when separately enabled and approved—upload files and create a submission.
+Canvas Batch Uploader is a Tkinter desktop app, with an included headless MCP server, that uses Canvas's official REST API to automate common course, assignment, file-upload, and submission workflows. It is a productivity tool for reducing repetitive manual interaction with Canvas: users can review and submit files through the GUI, while MCP-compatible AI agents can inspect courses and assignments, retrieve assignment files, prepare an explicit batch review, and—when separately enabled and approved—upload files and create a submission.
 
-The server operates with the user's own authorized Canvas credentials and respects the permissions granted to those credentials. It does not bypass Canvas permissions, deadlines, or access controls, and it does not invent or infer authorization to act. The default MCP process is read-only; write actions require explicit opt-in and confirmation. A Tkinter desktop app is also included as an optional companion for users who prefer a visible local review workflow.
+Both interfaces operate with the user's own authorized Canvas credentials and respect the permissions granted to those credentials. The project does not bypass Canvas permissions, deadlines, or access controls, and it does not invent or infer authorization to act. The MCP process is read-only by default; write actions require explicit opt-in and confirmation.
 
 ## Setup
 
@@ -26,7 +26,7 @@ Canvas personal access tokens are normally created under **Account → Settings 
 
 Never share `.env` or paste its token into an issue, log, or screenshot. The real `.env`, `data/`, `exports/`, and `PROJECT_GOAL.md` are Git-ignored.
 
-## Optional desktop companion
+## Desktop app
 
 With the virtual environment active:
 
