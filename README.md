@@ -1,6 +1,8 @@
-# Canvas Batch Uploader
+# Canvas Batch Uploader MCP Server
 
-A small Tkinter desktop app for downloading Canvas assignment files and reviewing and submitting a folder of local files to one Canvas assignment. It never selects files automatically and never creates a submission without an explicit confirmation.
+Canvas Batch Uploader is an MCP server that uses Canvas's official REST API to help MCP-compatible AI agents automate common course, assignment, file-upload, and submission workflows. It is a productivity tool for reducing repetitive manual interaction with Canvas: an agent can inspect courses and assignments, retrieve assignment files, prepare an explicit batch review, and—when separately enabled and approved—upload files and create a submission.
+
+The server operates with the user's own authorized Canvas credentials and respects the permissions granted to those credentials. It does not bypass Canvas permissions, deadlines, or access controls, and it does not invent or infer authorization to act. The default MCP process is read-only; write actions require explicit opt-in and confirmation. A Tkinter desktop app is also included as an optional companion for users who prefer a visible local review workflow.
 
 ## Setup
 
@@ -24,7 +26,7 @@ Canvas personal access tokens are normally created under **Account → Settings 
 
 Never share `.env` or paste its token into an issue, log, or screenshot. The real `.env`, `data/`, `exports/`, and `PROJECT_GOAL.md` are Git-ignored.
 
-## Run
+## Optional desktop companion
 
 With the virtual environment active:
 
@@ -46,7 +48,7 @@ The desktop app includes a **Homework Library** section for keeping local work o
 
 Downloaded assignment files are loaded into the file table but are not automatically selected for upload. Original files are never moved or deleted. Existing files are never overwritten: downloaded conflicts receive a numbered name, while locally added identical files are reused and different files receive names such as `worksheet (2).xlsx`. Credential files, private keys, and symbolic links are rejected from upload storage. Course-to-folder mappings are stored only in the Git-ignored `data/homework_library.json`; homework file contents remain in the folder you selected.
 
-## Headless MCP server
+## MCP server
 
 The MCP server uses stdio and does not import or start Tkinter. Its default mode can inspect Canvas, list explicitly named local folders, and prepare reviews, but cannot upload or submit:
 
