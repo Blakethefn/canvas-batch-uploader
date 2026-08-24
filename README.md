@@ -129,3 +129,7 @@ The test suite is fully offline and does not require a Canvas token or live Canv
 ## Project status
 
 This project is provided as source code for local use. Canvas access requires a Canvas instance, an authorized personal access token, and whatever permissions and submission policies that institution applies.
+
+## License
+
+Canvas Batch Uploader is released under the [MIT License](LICENSE).
