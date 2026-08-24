@@ -18,7 +18,7 @@ Run the offline test suite and syntax check:
 
 ```powershell
 python -m unittest discover -s tests -v
-python -m compileall -q app tests test_canvas_api.py
+python -m compileall -q app tests
 ```
 
 Tests must not call a real Canvas instance or require a Canvas token. Do not commit `.env` files, tokens, course data, downloaded files, exports, or other private material.

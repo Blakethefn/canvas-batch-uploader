@@ -121,10 +121,10 @@ python -m unittest discover -s tests -v
 Syntax-check all application and test modules with:
 
 ```powershell
-python -m compileall -q app tests test_canvas_api.py
+python -m compileall -q app tests
 ```
 
-The existing `test_canvas_api.py` remains a separate read-only proof script; it is not needed to run the desktop app.
+The test suite is fully offline and does not require a Canvas token or live Canvas access.
 
 ## Project status
 
