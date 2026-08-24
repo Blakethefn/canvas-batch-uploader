@@ -1,5 +1,10 @@
 # Private configuration and credentials
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
 
 # Local API response data (may contain student/course information)
 data/
@@ -10,6 +15,11 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+*.log
 
 # Local operating-system and editor files
 .DS_Store

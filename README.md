@@ -26,6 +26,8 @@ Canvas personal access tokens are normally created under **Account → Settings 
 
 Never share `.env` or paste its token into an issue, log, or screenshot. The real `.env`, `data/`, `exports/`, and `PROJECT_GOAL.md` are Git-ignored.
 
+For vulnerability reports or credential-exposure concerns, see [SECURITY.md](SECURITY.md). See [CONTRIBUTING.md](CONTRIBUTING.md) for local development and test instructions.
+
 ## Desktop app
 
 With the virtual environment active:
@@ -123,3 +125,7 @@ python -m compileall -q app tests test_canvas_api.py
 ```
 
 The existing `test_canvas_api.py` remains a separate read-only proof script; it is not needed to run the desktop app.
+
+## Project status
+
+This project is provided as source code for local use. Canvas access requires a Canvas instance, an authorized personal access token, and whatever permissions and submission policies that institution applies.
